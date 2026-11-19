@@ -16,7 +16,11 @@ from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 from lxml import etree
 import httpx
 
+from cloudtemple import chat_completion
+
 SUMMARY_WORD_LIMIT = int(os.getenv("SUMMARY_WORD_LIMIT", "50"))
+LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama").lower()
+LLAMACPP_BASE_URL = os.getenv("LLAMACPP_BASE_URL", "").rstrip("/")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 MODEL1_NAME = os.getenv("MODEL1_NAME", "gpt-oss:20b")
 MODEL1_REASONING_EFFORT = os.getenv("MODEL1_REASONING_EFFORT", "low")
@@ -280,6 +284,66 @@ def parse_depth_summary_pairs(text: str) -> List[Tuple[int, str]]:
 
 
 async def generate(client: httpx.AsyncClient, instruction: str) -> str:
+    if LLM_BACKEND == "cloudtemple":
+        return await chat_completion(
+            client,
+            model=MODEL1_NAME,
+            prompt=instruction,
+            max_tokens=MAX_NEW_TOKENS,
+            timeout_seconds=float(
+                os.getenv("CLOUDTEMPLE_MODEL1_TIMEOUT_SECONDS", "600")
+            ),
+        )
+
+    if LLM_BACKEND == "llamacpp":
+        if not LLAMACPP_BASE_URL:
+            raise ValueError("LLAMACPP_BASE_URL must be configured")
+
+        chunks: list[str] = []
+        truncated = False
+
+        async with client.stream(
+            "POST",
+            f"{LLAMACPP_BASE_URL}/chat/completions",
+            json={
+                "model": MODEL1_NAME,
+                "messages": [{"role": "user", "content": instruction}],
+                "stream": True,
+                "temperature": 0.0,
+                "max_tokens": MAX_NEW_TOKENS,
+                "repeat_penalty": 1.2,
+            },
+            timeout=httpx.Timeout(
+                connect=30.0,
+                read=1800.0,
+                write=30.0,
+                pool=30.0,
+            ),
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data or data == "[DONE]":
+                    continue
+                packet = json.loads(data)
+                for choice in packet.get("choices", []):
+                    if choice.get("finish_reason") == "length":
+                        truncated = True
+                    content = choice.get("delta", {}).get("content")
+                    if isinstance(content, str):
+                        chunks.append(content)
+
+        if truncated:
+            raise RuntimeError(
+                "llama.cpp reached max_tokens before completing the response."
+            )
+        return "".join(chunks)
+
+    if LLM_BACKEND != "ollama":
+        raise ValueError(f"Unsupported LLM_BACKEND: {LLM_BACKEND}")
+
     resp = await client.post(
         f"{OLLAMA_URL}/api/chat",
         json={
@@ -318,6 +382,7 @@ async def annotate_events(
 
     for upto in range(len(events)):
         success = False
+        invalid_response_seen = False
         text = ""
         pkg: Dict = {}
 
@@ -326,14 +391,21 @@ async def annotate_events(
             instr = build_instruction(pkg)
             try:
                 text = await generate(client, instr)
-                success = True
-                break
+                if parse_depth_summary_pairs(text):
+                    success = True
+                    break
+                invalid_response_seen = True
             except httpx.HTTPStatusError as e:
                 if e.response.status_code in (400, 413) or "context" in e.response.text.lower():
                     continue
                 raise
 
         if not success:
+            if invalid_response_seen:
+                raise RuntimeError(
+                    f"Model 1 returned no valid annotation JSON for event {upto} "
+                    "after all attempts."
+                )
             text = '{"annotation": "Event payload too large for context window.", "depth": 0}'
 
         pairs = parse_depth_summary_pairs(text)

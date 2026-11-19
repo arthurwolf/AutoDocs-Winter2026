@@ -90,7 +90,17 @@ class JobRunner:
 
         await self.store.complete_stage(job_id, "annotate", f"Generated {len(predictions)} event summaries.")
         await self.store.stage(job_id, "finalize", 1, "Formatting results for the AutoDocs application.")
-        result = {"content": [json.dumps({"idx": index, "depth": value["depth"], "summary": value["summary"]}) for index, value in sorted(predictions.items())]}
+        result = {
+            "content": [
+                json.dumps({
+                    "idx": index,
+                    "depth": value["depth"],
+                    "summary": value["summary"],
+                    "xml": events[index].xml,
+                })
+                for index, value in sorted(predictions.items())
+            ]
+        }
         await self.store.progress(job_id, "finalize", 1, 1, "Analysis results formatted successfully.")
         await self.store.complete_stage(job_id, "finalize", "Analysis results are ready to save.")
         await self.store.completed(job_id, result)

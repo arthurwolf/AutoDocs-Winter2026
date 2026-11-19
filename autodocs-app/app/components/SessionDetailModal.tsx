@@ -1,7 +1,8 @@
 import { X, Download, Share2, Trash2, GitBranch, CornerDownRight, LogOut, ChevronRight, Loader2, CheckCircle, AlertCircle, UserPlus, TriangleAlert } from 'lucide-react';
 import { useState, useMemo } from 'react';
-import type { Session, SessionEvent } from '@/app/home/page';
-import { parseSessionContent } from '@/app/home/page';
+import type { Session } from '@/app/home/page';
+import { parseSessionContent, type SessionEvent } from '@/app/lib/session-content';
+
 
 interface SessionDetailModalProps {
   isOpen: boolean;
@@ -108,7 +109,10 @@ function RootNode({ title, totalEvents, children }: { title: string; totalEvents
 
 function EventNode({ node, defaultOpen = true }: { node: TreeNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [contentOpen, setContentOpen] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const hasChildren = node.children.length > 0;
+  const hasContent = typeof node.event.content === 'string';
 
   return (
     <div className="relative">
@@ -143,8 +147,47 @@ function EventNode({ node, defaultOpen = true }: { node: TreeNode; defaultOpen?:
           <p className={`text-sm font-mono leading-snug ${depthTextClass(node.event.depth)}`}>
             {node.event.label}
           </p>
+          <button
+            type="button"
+            disabled={!hasContent}
+            aria-expanded={hasContent ? contentOpen : undefined}
+            onClick={(event) => {
+              event.stopPropagation();
+              setContentOpen((current) => !current);
+            }}
+            className="mt-2 text-xs font-mono text-primary hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed"
+          >
+            {!hasContent ? 'Original content unavailable' : contentOpen ? 'Hide content' : 'View content'}
+          </button>
         </div>
       </div>
+
+      {contentOpen && hasContent && (
+        <div className="ml-6 mt-1 rounded-lg border border-border bg-background/70 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-xs font-mono text-muted-foreground">
+              Original event XML
+            </span>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(node.event.content ?? '');
+                  setCopyState('copied');
+                } catch {
+                  setCopyState('error');
+                }
+              }}
+              className="rounded border border-border px-2 py-1 text-xs font-mono hover:bg-accent"
+            >
+              {copyState === 'copied' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy'}
+            </button>
+          </div>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-3 text-xs text-foreground">
+            {node.event.content}
+          </pre>
+        </div>
+      )}
 
       {hasChildren && open && (
         <div className="ml-6 mt-1 space-y-1 relative">

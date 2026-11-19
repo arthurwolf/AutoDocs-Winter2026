@@ -45,13 +45,31 @@ export async function enqueueMlJob(input: { id: string; title: string; content: 
   return response.json() as Promise<MlJobStatus>;
 }
 
+export class MlJobNotFoundError extends Error {
+  constructor(jobId: string) {
+    super(`ML job not found: ${jobId}`);
+    this.name = 'MlJobNotFoundError';
+  }
+}
+
 export async function readMlJob(jobId: string): Promise<MlJobStatus> {
   const response = await fetch(`${mlUrl()}/jobs/${encodeURIComponent(jobId)}`, {
     cache: 'no-store',
     signal: AbortSignal.timeout(10_000),
   });
+  if (response.status === 404) throw new MlJobNotFoundError(jobId);
   if (!response.ok) throw new Error(`ML job status failed with status ${response.status}`);
   return response.json() as Promise<MlJobStatus>;
+}
+
+export async function deleteMlJob(jobId: string): Promise<void> {
+  const response = await fetch(`${mlUrl()}/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`ML job deletion failed with status ${response.status}`);
+  }
 }
 
 export function createJobId(): string {

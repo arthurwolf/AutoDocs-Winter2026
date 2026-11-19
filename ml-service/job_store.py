@@ -118,6 +118,15 @@ class JobStore:
     async def failed(self, job_id: str, message: str) -> None:
         await self._mutate(job_id, status="failed", error=message, message=message, kind="failed")
 
+    async def delete_failed(self, job_id: str) -> None:
+        """Remove only a failed job and its uploaded recording."""
+        async with self._lock:
+            state = self._load(job_id)
+            if state["status"] != "failed":
+                raise ValueError("Only failed jobs may be deleted.")
+            self._input_path(job_id).unlink(missing_ok=True)
+            self._state_path(job_id).unlink()
+
     async def pending_job_ids(self) -> list[str]:
         async with self._lock:
             queued: list[str] = []

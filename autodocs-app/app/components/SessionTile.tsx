@@ -1,7 +1,8 @@
 import { Clock, FileText, GitBranch, CornerDownRight, LogOut } from 'lucide-react';
 import { useMemo } from 'react';
-import type { Session, SessionEvent } from '@/app/home/page';
-import { parseSessionContent } from '@/app/home/page';
+import type { Session } from '@/app/home/page';
+import { parseSessionContent, type SessionEvent } from '@/app/lib/session-content';
+
 
 interface SessionTileProps {
   session: Session;

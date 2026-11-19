@@ -15,6 +15,7 @@ import os
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import UUID
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -81,6 +82,17 @@ async def get_job(job_id: str):
         return await job_store.status(job_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="Upload job not found.") from error
+
+
+@app.delete("/jobs/{job_id}")
+async def delete_failed_job(job_id: UUID):
+    try:
+        await job_store.delete_failed(str(job_id))
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Upload job not found.") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"deleted": True}
 
 
 @app.post("/", response_model=RecordingResponse)

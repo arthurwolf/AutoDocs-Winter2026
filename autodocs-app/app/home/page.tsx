@@ -7,11 +7,6 @@ import { getSessionUser } from '@/app/lib/auth';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-export interface SessionEvent {
-  label: string;
-  depth: number; // -1 = subevent, 0 = independent, >=1 = exiting
-}
-
 // Shape returned by /api/terminal-sessions
 export interface ApiSession {
   id: string;
@@ -59,32 +54,6 @@ function formatDate(isoString: string): string {
   });
 }
 
-export function parseSessionContent(raw: string): SessionEvent[] {
-  const lines = raw.split('\n');
-  const events: SessionEvent[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const label = lines[i].trim();
-    if (!label) { i++; continue; }
-
-    let j = i + 1;
-    while (j < lines.length && lines[j].trim() === '') j++;
-
-    if (j < lines.length) {
-      const depthVal = parseInt(lines[j].trim(), 10);
-      if (!isNaN(depthVal)) {
-        events.push({ label, depth: depthVal });
-        i = j + 1;
-        continue;
-      }
-    }
-
-    i++;
-  }
-
-  return events;
-}
 
 function SessionGridSkeleton() {
   return (

@@ -17,9 +17,10 @@ interface TerminalSessionRow {
 }
 
 interface MlServiceResponseLine {
-  summary: string[]; // each string is a JSON object with summary and depth
-  depth: string;
+  summary: string;
+  depth: number | string;
   idx: number;
+  xml?: string;
 }
 
 export async function GET(request: NextRequest) {
@@ -118,10 +119,26 @@ export async function POST(request: NextRequest) {
 
     const mlData = await mlResponse.json();
     const rawContent = mlData.content.map((item: string) => JSON.parse(item));
-    // build a new string that has the format summary\ndepth\n for each event, which is what the current frontend expects
-    content = rawContent.map((item: MlServiceResponseLine) => `${item.summary}\n${item.depth}`).join('\n');
-    
-    console.log('ML service response content:', content);
+
+    // Preserve original XML when available; older ML responses may omit it.
+    const events = rawContent.map((item: MlServiceResponseLine) => {
+      const depth = Number(item.depth);
+
+      if (!Number.isInteger(depth) || typeof item.summary !== 'string') {
+        throw new Error('Invalid event annotation returned by ML service.');
+      }
+
+      return {
+        label: item.summary,
+        depth,
+        content: typeof item.xml === 'string' ? item.xml : null,
+      };
+    });
+
+    content = JSON.stringify({ version: 2, events });
+
+    // Do not log raw terminal XML; it may contain sensitive information.
+    console.log('ML service processed event count:', events.length);
 
     // send into db
     await db.query('BEGIN');
